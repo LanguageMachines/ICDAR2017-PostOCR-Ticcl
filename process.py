@@ -97,7 +97,7 @@ def process(testfiles, listfile):
     for testfile in testfiles:
         text = loadtext(testfile)
 
-        tokens = text.strip(' ')
+        tokens = text.split(' ')
         done = [False] * len(tokens) #keep track of which tokens we processed, ensuring we don't process the same token twice
 
         result = {} #this will store the results
