@@ -91,8 +91,9 @@ def ngrams(text, n):
             yield charoffset, begin, end - begin, ngram
             charoffset = len(ngram) + 1
 
-def process(testfiles, listfile):
+def process_task1(testfiles, listfile):
     corrections = loadlist(listfile, testfiles)
+    result = {}
 
     for testfile in testfiles:
         text = loadtext(testfile)
@@ -100,7 +101,7 @@ def process(testfiles, listfile):
         tokens = text.split(' ')
         done = [False] * len(tokens) #keep track of which tokens we processed, ensuring we don't process the same token twice
 
-        result = {} #this will store the results
+        result[testfile] = {} #this will store the results
 
         #greedy match over all 3,2,1-grams, in that order
         for order in (3,2,1):
@@ -109,19 +110,20 @@ def process(testfiles, listfile):
                 if not any(done[tokenoffset:tokenoffset+tokenlength]):
                     if ngram in corrections:
                         print(testfile + " @[" + str(charoffset) + "chr," + str(tokenlength) + "toklen]: " + ngram + " -> " + corrections[ngram])
-                        result[str(charoffset)+":"+str(tokenlength)] = { corrections[ngram]: 1.0 } #confidence always 1.0, we only output one candidate
+                        result[testfile][str(charoffset)+":"+str(tokenlength)] = { corrections[ngram]: 1.0 } #confidence always 1.0, we only output one candidate
+                        print("Correcting " + testfile + "@" + str(charoffset) +":" + str(tokenlength) + " " + ngram + " -> " + corrections[ngram],file=sys.stderr)
                         for i in range(tokenoffset, tokenoffset+tokenlength): done[i] = True
 
-        #Output to JSON
-        print("Writing output to " + testfile.replace('.txt','') + '.json', file=sys.stderr)
-        with open(testfile.replace('.txt','') + '.json','w',encoding='utf-8') as f:
-            json.dump(result, f)
+    #Output to JSON
+    print("Writing output to stdout", file=sys.stderr)
+    print(json.dumps(result))
 
 
 def main():
     parser = argparse.ArgumentParser(description="ICDAR 2017 Post-OCR Processing Script", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i','--input', dest='settype',type="str", help="Input file or directory (*.txt files)", action='store',required=True)
     parser.add_argument('-l','--list ', type=str,help="Ranked correction list from TICCL", action='store',default="",required=True)
+    parser.add_argument('--task', type=int, help="Task", action='store',required=True)
     args = parser.parse_args()
 
     if os.path.isdir(args.input):
@@ -131,7 +133,8 @@ def main():
     else:
         testfiles = [args.input]
 
-    process(testfiles, args.list)
+    if args.task == 1:
+        process_task1(testfiles, args.list)
 
 
 if __name__ == '__main__':
