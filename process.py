@@ -19,7 +19,7 @@ def loadtext(testfile):
     """Load the text from a test file"""
     with open(testfile,'r',encoding='utf-8') as f:
         for line in f:
-            if line.startwith("[OCR_toInput]"):
+            if line.startswith("[OCR_toInput]"):
                 return line[len("[OCR_toInput]") + 1:]
             else:
                 raise Exception("Unexpected input format, expected [OCR_toInput] on first line")
@@ -57,7 +57,7 @@ def loadlist(listfile, testfiles):
     print("Loading and filtering correction list...", file=sys.stderr)
     found = 0
     total = 0
-    with open(listfile,'r',encoding='utf-8') as f:
+    with open(listfile,'r',encoding='utf-8',errors='ignore') as f:
         for line in f:
             total += 1
 
@@ -77,9 +77,14 @@ def loadlist(listfile, testfiles):
     print("Found " + str(found) + " candidates out of " + str(total) + " patterns...", file=sys.stderr)
     return corrections
 
+def readpositiondata(positionfile):
+    with open(positionfile,'r',encoding='utf-8') as f:
+        positiondata = json.load(f)
+    return positiondata
+
 def ngrams(text, n):
     """Yields an n-gram (tuple) at each iteration"""
-    if isinstance(text, 'str'): text = text.split(' ')
+    if isinstance(text, str): text = text.split(' ')
     l = len(text)
 
     charoffset = 0
@@ -87,9 +92,9 @@ def ngrams(text, n):
         begin = i
         end = i + n
         if begin >= 0 and end <= l:
-            ngram = text[begin:end]
+            ngram = " ".join(text[begin:end])
             yield charoffset, begin, end - begin, ngram
-            charoffset = len(ngram) + 1
+            charoffset += len(ngram) + 1
 
 def process_task1(testfiles, listfile):
     corrections = loadlist(listfile, testfiles)
@@ -109,9 +114,8 @@ def process_task1(testfiles, listfile):
                 assert tokenlength == order
                 if not any(done[tokenoffset:tokenoffset+tokenlength]):
                     if ngram in corrections:
-                        print(testfile + " @[" + str(charoffset) + "chr," + str(tokenlength) + "toklen]: " + ngram + " -> " + corrections[ngram])
+                        print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]: " + ngram + " -> " + corrections[ngram], file=sys.stderr)
                         result[testfile][str(charoffset)+":"+str(tokenlength)] = { corrections[ngram]: 1.0 } #confidence always 1.0, we only output one candidate
-                        print("Correcting " + testfile + "@" + str(charoffset) +":" + str(tokenlength) + " " + ngram + " -> " + corrections[ngram],file=sys.stderr)
                         for i in range(tokenoffset, tokenoffset+tokenlength): done[i] = True
 
     #Output to JSON
@@ -119,11 +123,63 @@ def process_task1(testfiles, listfile):
     print(json.dumps(result))
 
 
+
+def process_task2(testfiles, listfile, positionfile):
+    positiondata = readpositiondata(positionfile)
+
+    icdar_results = {} #results as per challenge specification
+
+    corrections = loadlist(listfile, testfiles)
+    result = {}
+
+    for testfile in testfiles:
+        text = loadtext(testfile)
+
+        positions = [ (int(positiontuple.split(':')[0]), int(positiontuple.split(':')[1])) for positiontuple in positiondata[testfile] ]
+
+        tokens = text.split(' ')
+
+        icdar_results[testfile] = {} #this will store the results
+
+        charoffset = 0
+        testwords = []
+        mask = []
+        found = 0
+        skip = 0
+        for i, token in enumerate(tokens):
+            if skip: #token was already processed as part of multi-token expression, skip:
+                skip -= 1
+                continue
+            #Do we have an explicitly marked token here?
+            for position_charoffset, position_tokenlength in positions:
+                if charoffset == position_charoffset:
+                    token = " ".join(tokens[i:i+position_tokenlength])
+                    skip = position_tokenlength -1 #if the token consists of multiple tokens, signal to skip the rest
+                    print("[" + testfile + "@" + str(position_charoffset) + ":" + str(position_tokenlength) + "] " +  token, file=sys.stderr)
+                    if token in corrections:
+                        print(testfile + "[@" + str(position_charoffset) +":" + str(position_tokenlength) + "]: " + token + " -> " + corrections[token],file=sys.stderr)
+                        icdar_results[testfile][str(position_charoffset)+":"+str(position_tokenlength)] = { corrections[token]: 1.0 } #confidence always 1.0, we only output one candidate
+                    else:
+                        print("No correction for " + testfile + "[@" + str(position_charoffset) +":" + str(position_tokenlength) + "]",file=sys.stderr)
+                        icdar_results[testfile][str(position_charoffset)+":"+str(position_tokenlength)] = { token: 0.99 } #just copy input if we don't know
+                        #TODO: backoff to smaller tokenlength?
+                    found += 1
+            charoffset += len(token) + 1
+
+        if found != len(positions):
+            raise Exception("One or more positions were not found in the text!")
+
+    #Output to JSON
+    print("Writing output to stdout", file=sys.stderr)
+    print(json.dumps(icdar_results))
+
+
 def main():
     parser = argparse.ArgumentParser(description="ICDAR 2017 Post-OCR Processing Script", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-i','--input', dest='settype',type="str", help="Input file or directory (*.txt files)", action='store',required=True)
-    parser.add_argument('-l','--list ', type=str,help="Ranked correction list from TICCL", action='store',default="",required=True)
+    parser.add_argument('-i','--input', type=str, help="Input file or directory (*.txt files)", action='store',required=True)
+    parser.add_argument('-l','--list', type=str,help="Ranked correction list from TICCL", action='store',default="",required=True)
     parser.add_argument('--task', type=int, help="Task", action='store',required=True)
+    parser.add_argument('--positionfile', type=str, help="Input file with position information (erroneous_tokens_pos.json), required for task 2", action='store',required=False)
     args = parser.parse_args()
 
     if os.path.isdir(args.input):
@@ -135,6 +191,8 @@ def main():
 
     if args.task == 1:
         process_task1(testfiles, args.list)
+    elif args.task == 2:
+        process_task2(testfiles, args.list, args.positionfile)
 
 
 if __name__ == '__main__':
