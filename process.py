@@ -96,6 +96,40 @@ def ngrams(text, n):
             yield charoffset, begin, end - begin, ngram
             charoffset += len(ngram) + 1
 
+def narrowdownoffsets(corrections, ngram, charoffset, tokenoffset, tokenlength):
+    """narrow down the offsets given a match: check where in the match the actual correction is (parts may be equal)"""
+    correctioncharoffset = 0
+    correctiontokenoffset = 0
+    for i, c in enumerate(ngram):
+        if c == ' ' and i > 0 and ngram[:i+1] == corrections[ngram][:i+1]:
+            correctioncharoffset = i + 1
+            correctiontokenoffset += 1
+
+    charoffset += correctioncharoffset
+    tokenoffset += correctiontokenoffset
+    tokenlength -= correctiontokenoffset
+
+    taillength = 0
+    for i, c in enumerate(reversed(ngram)):
+        if c == ' ' and i > 0 and ngram[-(i+1):] == corrections[ngram][-(i+1):]:
+            tokenlength -= 1
+            taillength = i+1
+
+    original = ngram[correctioncharoffset:len(ngram) - taillength]
+    correction = corrections[ngram][correctioncharoffset:len(corrections[ngram]) - taillength]
+
+    if tokenlength <= 0:
+        print(charoffset,correctioncharoffset,tokenoffset,correctiontokenoffset, tokenlength, taillength,file=sys.stderr)
+        print(original,file=sys.stderr)
+        print(correction,file=sys.stderr)
+        print(ngram,file=sys.stderr)
+        print(corrections[ngram],file=sys.stderr)
+        raise ValueError("Tokenlength is " + str(tokenlength))
+
+    return original, correction, charoffset, tokenoffset, tokenlength
+
+
+
 def process_task1(testfiles, listfile):
     corrections = loadlist(listfile, testfiles)
     result = {}
@@ -114,33 +148,7 @@ def process_task1(testfiles, listfile):
                 assert tokenlength == order
                 if ngram in corrections:
                     #we have have a match, now check where in the match the actual correction is (parts may be equal)
-                    correctioncharoffset = 0
-                    correctiontokenoffset = 0
-                    for i, c in enumerate(ngram):
-                        if c == ' ' and i > 0 and ngram[:i+1] == corrections[ngram][:i+1]:
-                            correctioncharoffset = i + 1
-                            correctiontokenoffset += 1
-
-                    charoffset += correctioncharoffset
-                    tokenoffset += correctiontokenoffset
-                    tokenlength -= correctiontokenoffset
-
-                    taillength = 0
-                    for i, c in enumerate(reversed(ngram)):
-                        if c == ' ' and i > 0 and ngram[-(i+1):] == corrections[ngram][-(i+1):]:
-                            tokenlength -= 1
-                            taillength = i+1
-
-                    original = ngram[correctioncharoffset:len(ngram) - taillength]
-                    correction = corrections[ngram][correctioncharoffset:len(corrections[ngram]) - taillength]
-
-                    if tokenlength <= 0:
-                        print(charoffset,correctioncharoffset,tokenoffset,correctiontokenoffset, tokenlength, taillength,file=sys.stderr)
-                        print(original,file=sys.stderr)
-                        print(correction,file=sys.stderr)
-                        print(ngram,file=sys.stderr)
-                        print(corrections[ngram],file=sys.stderr)
-                        raise Exception("Tokenlength is " + str(tokenlength))
+                    original, correction, charoffset, tokenoffset, tokenlength = narrowdownoffsets(corrections, ngram, charoffset, tokenoffset, tokenlength)
 
                     if not any(done[tokenoffset:tokenoffset+tokenlength]):
                         print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]:\t" + original + " -> " + correction + "\t[" + ngram + " -> " + corrections[ngram]+"]", file=sys.stderr)
@@ -156,8 +164,6 @@ def process_task1(testfiles, listfile):
 def process_task2(testfiles, listfile, positionfile):
     positiondata = readpositiondata(positionfile)
 
-    icdar_results = {} #results as per challenge specification
-
     corrections = loadlist(listfile, testfiles)
     result = {}
 
@@ -168,7 +174,7 @@ def process_task2(testfiles, listfile, positionfile):
 
         tokens = text.split(' ')
 
-        icdar_results[testfile] = {} #this will store the results
+        result[testfile] = {} #this will store the results
 
         charoffset = 0
         testwords = []
@@ -186,12 +192,22 @@ def process_task2(testfiles, listfile, positionfile):
                     skip = position_tokenlength -1 #if the token consists of multiple tokens, signal to skip the rest
                     print("[" + testfile + "@" + str(position_charoffset) + ":" + str(position_tokenlength) + "] " +  token, file=sys.stderr)
                     if token in corrections:
-                        print(testfile + "[@" + str(position_charoffset) +":" + str(position_tokenlength) + "]: " + token + " -> " + corrections[token],file=sys.stderr)
-                        icdar_results[testfile][str(position_charoffset)+":"+str(position_tokenlength)] = { corrections[token]: 1.0 } #confidence always 1.0, we only output one candidate
+                        tokenoffset = i
+                        if token != corrections[token]:
+                            original, correction, correction_charoffset, correction_tokenoffset, correction_tokenlength = narrowdownoffsets(corrections, token, charoffset, i, position_tokenlength)
+                        else:
+                            #this is a non-change (probably never occurs?)
+                            original = token
+                            correction = corrections[token]
+                            correction_charoffset = position_charoffset
+                            correction_tokenoffset = i
+                            correction_tokenlength = position_tokenlength
+
+                        print(testfile + " @[" + str(correction_charoffset) + ":" + str(correction_tokenlength) + "]:\t" + original + " -> " + correction + "\t[" + token + " -> " + corrections[token]+"]", file=sys.stderr)
+                        result[testfile][str(correction_charoffset)+":"+str(correction_tokenlength)] = { correction: 1.0 } #confidence always 1.0, we only output one candidate
                     else:
-                        print("No correction for " + testfile + "[@" + str(position_charoffset) +":" + str(position_tokenlength) + "]",file=sys.stderr)
-                        icdar_results[testfile][str(position_charoffset)+":"+str(position_tokenlength)] = { token: 0.99 } #just copy input if we don't know
-                        #TODO: backoff to smaller tokenlength?
+                        print("WARNING: No correction for " + testfile + "[@" + str(position_charoffset) +":" + str(position_tokenlength) + "].. copying input verbatim...",file=sys.stderr)
+                        result[testfile][str(position_charoffset)+":"+str(position_tokenlength)] = { token: 0.001 } #just copy input if we don't know
                     found += 1
             charoffset += len(token) + 1
 
@@ -200,7 +216,7 @@ def process_task2(testfiles, listfile, positionfile):
 
     #Output to JSON
     print("Writing output to stdout", file=sys.stderr)
-    print(json.dumps(icdar_results))
+    print(json.dumps(result))
 
 
 def main():
