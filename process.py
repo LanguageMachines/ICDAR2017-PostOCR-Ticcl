@@ -112,10 +112,31 @@ def process_task1(testfiles, listfile):
         for order in (3,2,1):
             for charoffset, tokenoffset, tokenlength, ngram in ngrams(tokens, order):
                 assert tokenlength == order
-                if not any(done[tokenoffset:tokenoffset+tokenlength]):
-                    if ngram in corrections:
-                        print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]: " + ngram + " -> " + corrections[ngram], file=sys.stderr)
-                        result[testfile][str(charoffset)+":"+str(tokenlength)] = { corrections[ngram]: 1.0 } #confidence always 1.0, we only output one candidate
+                if ngram in corrections:
+                    #we have have a match, now check where in the match the actual correction is (parts may be equal)
+                    correctioncharoffset = 0
+                    correctiontokenoffset = 0
+                    for i, c in enumerate(ngram):
+                        if c == ' ' and ngram[:i] == corrections[ngram][:i]:
+                            correctioncharoffset = i + 1
+                            correctiontokenoffset += 1
+
+                    charoffset += correctioncharoffset
+                    tokenoffset += correctiontokenoffset
+                    tokenlength -= correctiontokenoffset
+
+                    taillength = 0
+                    for i, c in enumerate(reversed(ngram)):
+                        if c == ' ' and ngram[i:] == corrections[ngram][i:]:
+                            tokenlength -= 1
+                            taillength = i+1
+
+                    original = ngram[correctioncharoffset:len(ngram) - taillength]
+                    correction = corrections[ngram][correctioncharoffset:len(corrections[ngram]) - taillength]
+
+                    if not any(done[tokenoffset:tokenoffset+tokenlength]):
+                        print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]:\t" + original + " -> " + correction + "\t[" + ngram + " -> " + corrections[ngram]+"]", file=sys.stderr)
+                        result[testfile][str(charoffset)+":"+str(tokenlength)] = { correction: 1.0 } #confidence always 1.0, we only output one candidate
                         for i in range(tokenoffset, tokenoffset+tokenlength): done[i] = True
 
     #Output to JSON
