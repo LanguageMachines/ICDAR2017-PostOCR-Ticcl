@@ -117,7 +117,7 @@ def process_task1(testfiles, listfile):
                     correctioncharoffset = 0
                     correctiontokenoffset = 0
                     for i, c in enumerate(ngram):
-                        if c == ' ' and ngram[:i] == corrections[ngram][:i]:
+                        if c == ' ' and i > 0 and ngram[:i+1] == corrections[ngram][:i+1]:
                             correctioncharoffset = i + 1
                             correctiontokenoffset += 1
 
@@ -127,12 +127,20 @@ def process_task1(testfiles, listfile):
 
                     taillength = 0
                     for i, c in enumerate(reversed(ngram)):
-                        if c == ' ' and ngram[i:] == corrections[ngram][i:]:
+                        if c == ' ' and i > 0 and ngram[-(i+1):] == corrections[ngram][-(i+1):]:
                             tokenlength -= 1
                             taillength = i+1
 
                     original = ngram[correctioncharoffset:len(ngram) - taillength]
                     correction = corrections[ngram][correctioncharoffset:len(corrections[ngram]) - taillength]
+
+                    if tokenlength <= 0:
+                        print(charoffset,correctioncharoffset,tokenoffset,correctiontokenoffset, tokenlength, taillength,file=sys.stderr)
+                        print(original,file=sys.stderr)
+                        print(correction,file=sys.stderr)
+                        print(ngram,file=sys.stderr)
+                        print(corrections[ngram],file=sys.stderr)
+                        raise Exception("Tokenlength is " + str(tokenlength))
 
                     if not any(done[tokenoffset:tokenoffset+tokenlength]):
                         print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]:\t" + original + " -> " + correction + "\t[" + ngram + " -> " + corrections[ngram]+"]", file=sys.stderr)
