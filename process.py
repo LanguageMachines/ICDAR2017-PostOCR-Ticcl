@@ -148,7 +148,12 @@ def process_task1(testfiles, listfile):
                 assert tokenlength == order
                 if ngram in corrections:
                     #we have have a match, now check where in the match the actual correction is (parts may be equal)
-                    original, correction, charoffset, tokenoffset, tokenlength = narrowdownoffsets(corrections, ngram, charoffset, tokenoffset, tokenlength)
+                    try:
+                        original, correction, charoffset, tokenoffset, tokenlength = narrowdownoffsets(corrections, ngram, charoffset, tokenoffset, tokenlength)
+                    except ValueError:
+                        print("WARNING: Returned tokenlength was 0? Falling back to entire ngram",file=sys.stderr)
+                        original = ngram
+                        correction = corrections[ngram]
 
                     if not any(done[tokenoffset:tokenoffset+tokenlength]):
                         print(testfile + " @[" + str(charoffset) + ":" + str(tokenlength) + "]:\t" + original + " -> " + correction + "\t[" + ngram + " -> " + corrections[ngram]+"]", file=sys.stderr)
